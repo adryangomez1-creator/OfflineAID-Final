@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
 import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { pool } from '../config/database.js';
+import { obtenerDireccionDesdeCoordenadas } from '../services/geocoding.service.js';
 
 export const emergenciasController = {
   /**
    * Reporte integral de emergencia con evidencias fotográficas adjuntas y notificación.
+   * Si no se envía dirección pero sí coordenadas (como en SOS), se resuelve automáticamente con OpenStreetMap.
    */
   reportarEmergencia: async (req: Request, res: Response): Promise<void> => {
     const { id_usuario, id_tipo, titulo, descripcion, latitud, longitud, direccion, evidencias } = req.body;
@@ -27,11 +29,20 @@ export const emergenciasController = {
         return;
       }
 
+      // Si no viene dirección manual, intentar resolverla mediante geocodificación inversa (OpenStreetMap)
+      let direccionFinal = direccion !== undefined && direccion !== null && String(direccion).trim().length > 0
+        ? String(direccion).trim().slice(0, 255)
+        : null;
+
+      if (!direccionFinal && latitud !== undefined && latitud !== null && longitud !== undefined && longitud !== null) {
+        direccionFinal = await obtenerDireccionDesdeCoordenadas(Number(latitud), Number(longitud));
+      }
+
       // 1. Guardar emergencia
       const [emRes] = await pool.query<ResultSetHeader>(
         `INSERT INTO Emergencias (id_usuario, id_tipo, titulo, descripcion, latitud, longitud, direccion, estado)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE')`,
-        [id_usuario, id_tipo, titulo, descripcion, latitud ?? null, longitud ?? null, direccion ?? null]
+        [id_usuario, id_tipo, titulo, descripcion, latitud ?? null, longitud ?? null, direccionFinal]
       );
       const idEmergencia = emRes.insertId;
 
@@ -53,6 +64,7 @@ export const emergenciasController = {
         id_emergencia: idEmergencia,
         prioridad: tip[0].nivel_prioridad,
         tipo: tip[0].nombre,
+        direccion: direccionFinal,
         total_evidencias: evidenciasUrls.length,
         evidencias: evidenciasUrls,
       });
@@ -63,6 +75,7 @@ export const emergenciasController = {
 
   /**
    * Guardar o actualizar la ubicación geográfica de una emergencia activa (Slide 3).
+   * Si no se especifica dirección, se resuelve automáticamente con OpenStreetMap a partir de las coordenadas.
    */
   actualizarUbicacion: async (req: Request, res: Response): Promise<void> => {
     const idEmergencia = Number(req.params.id);
@@ -74,9 +87,17 @@ export const emergenciasController = {
     }
 
     try {
+      let direccionFinal = direccion !== undefined && direccion !== null && String(direccion).trim().length > 0
+        ? String(direccion).trim().slice(0, 255)
+        : null;
+
+      if (!direccionFinal && latitud !== undefined && latitud !== null && longitud !== undefined && longitud !== null) {
+        direccionFinal = await obtenerDireccionDesdeCoordenadas(Number(latitud), Number(longitud));
+      }
+
       const [resultado] = await pool.query<ResultSetHeader>(
         'UPDATE Emergencias SET latitud = ?, longitud = ?, direccion = COALESCE(?, direccion) WHERE id_emergencia = ?',
-        [latitud, longitud, direccion ?? null, idEmergencia]
+        [latitud, longitud, direccionFinal, idEmergencia]
       );
 
       if (resultado.affectedRows === 0) {
@@ -89,7 +110,7 @@ export const emergenciasController = {
         id_emergencia: idEmergencia,
         latitud,
         longitud,
-        direccion: direccion ?? null,
+        direccion: direccionFinal,
       });
     } catch {
       res.status(500).json({ error: 'Error al actualizar ubicación de la emergencia' });

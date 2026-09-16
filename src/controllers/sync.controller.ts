@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { pool } from '../config/database.js';
+import { obtenerDireccionDesdeCoordenadas } from '../services/geocoding.service.js';
 
 interface OperacionOffline {
   temp_id?: string;
@@ -62,10 +63,18 @@ const ACCIONES: Record<
       throw new Error('id_tipo, titulo y descripcion son obligatorios para crear emergencia');
     }
 
+    let direccionFinal = direccion !== undefined && direccion !== null && String(direccion).trim().length > 0
+      ? String(direccion).trim().slice(0, 255)
+      : null;
+
+    if (!direccionFinal && latitud !== undefined && latitud !== null && longitud !== undefined && longitud !== null) {
+      direccionFinal = await obtenerDireccionDesdeCoordenadas(Number(latitud), Number(longitud));
+    }
+
     const [res] = await pool.query<ResultSetHeader>(
       `INSERT INTO Emergencias (id_usuario, id_tipo, titulo, descripcion, latitud, longitud, direccion, estado)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE')`,
-      [idUsuario, id_tipo, titulo, descripcion, latitud ?? null, longitud ?? null, direccion ?? null]
+      [idUsuario, id_tipo, titulo, descripcion, latitud ?? null, longitud ?? null, direccionFinal]
     );
 
     const idEmergencia = res.insertId;
@@ -107,9 +116,17 @@ const ACCIONES: Record<
       throw new Error('id_emergencia, latitud y longitud son requeridas para actualizar ubicación');
     }
 
+    let direccionFinal = payload.direccion !== undefined && payload.direccion !== null && String(payload.direccion).trim().length > 0
+      ? String(payload.direccion).trim().slice(0, 255)
+      : null;
+
+    if (!direccionFinal && payload.latitud !== undefined && payload.latitud !== null && payload.longitud !== undefined && payload.longitud !== null) {
+      direccionFinal = await obtenerDireccionDesdeCoordenadas(Number(payload.latitud), Number(payload.longitud));
+    }
+
     await pool.query(
       'UPDATE Emergencias SET latitud = ?, longitud = ?, direccion = COALESCE(?, direccion) WHERE id_emergencia = ?',
-      [payload.latitud, payload.longitud, payload.direccion ?? null, idEmergencia]
+      [payload.latitud, payload.longitud, direccionFinal, idEmergencia]
     );
 
     return { id_emergencia: idEmergencia, mensaje: 'Ubicación actualizada exitosamente desde la cola' };

@@ -12,8 +12,9 @@ USE offlineaid_in5bm;
 -- 1. USUARIOS
 -- Incluye:
 -- - Roles
--- - Información del dispositivo
+
 -- ============================================
+
 
 CREATE TABLE Usuarios (
 
@@ -41,15 +42,10 @@ CREATE TABLE Usuarios (
         'INACTIVO'
     ) DEFAULT 'ACTIVO',
 
-    token_push VARCHAR(300),
-
-    modelo_dispositivo VARCHAR(100),
-
-    sistema_operativo VARCHAR(100),
-
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
 );
+
 
 
 -- ============================================
